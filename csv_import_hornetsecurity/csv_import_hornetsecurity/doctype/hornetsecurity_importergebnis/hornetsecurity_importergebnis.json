@@ -1,0 +1,46 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-08-25 11:43:38.873481",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "datum",
+  "name_der_csv",
+  "importergebnis"
+ ],
+ "fields": [
+  {
+   "fieldname": "datum",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Datum"
+  },
+  {
+   "fieldname": "name_der_csv",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Name der CSV"
+  },
+  {
+   "fieldname": "importergebnis",
+   "fieldtype": "Long Text",
+   "in_list_view": 1,
+   "label": "Importergebnis"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2025-08-25 11:46:55.381550",
+ "modified_by": "Administrator",
+ "module": "Csv Import Hornetsecurity",
+ "name": "Hornetsecurity Importergebnis",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

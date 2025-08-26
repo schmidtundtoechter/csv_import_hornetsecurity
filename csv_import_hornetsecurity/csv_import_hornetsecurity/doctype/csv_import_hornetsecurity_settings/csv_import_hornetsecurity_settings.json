@@ -1,0 +1,105 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-08-25 11:47:45.474599",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "instructions_section_section",
+  "csv_manual_check_instructions",
+  "section_break_neqv",
+  "nullrechnungen_unterdruecken",
+  "csv_import_button",
+  "section_break_ljaj",
+  "hornetsecurity_rabattwerte_je_kunde",
+  "section_break_bsvf",
+  "hornetsecurity_importhistorie",
+  "section_break_fopq",
+  "hornetsecurity_importergebnis"
+ ],
+ "fields": [
+  {
+   "default": "1",
+   "fieldname": "nullrechnungen_unterdruecken",
+   "fieldtype": "Check",
+   "label": "Nullrechnungen unterdr\u00fccken"
+  },
+  {
+   "fieldname": "csv_import_button",
+   "fieldtype": "Button",
+   "label": "CSV Import"
+  },
+  {
+   "fieldname": "section_break_ljaj",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "hornetsecurity_rabattwerte_je_kunde",
+   "fieldtype": "Table",
+   "label": "Hornetsecurity Rabattwerte je Kunde",
+   "options": "Hornetsecurity Rabattwerte je Kunde"
+  },
+  {
+   "fieldname": "section_break_bsvf",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "hornetsecurity_importhistorie",
+   "fieldtype": "Table",
+   "label": "Hornetsecurity Importhistorie",
+   "options": "Hornetsecurity Importhistorie"
+  },
+  {
+   "fieldname": "section_break_fopq",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "hornetsecurity_importergebnis",
+   "fieldtype": "Table",
+   "label": "Hornetsecurity Importergebnis",
+   "options": "Hornetsecurity Importergebnis"
+  },
+  {
+   "fieldname": "section_break_neqv",
+   "fieldtype": "Section Break"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "instructions_section_section",
+   "fieldtype": "Section Break",
+   "label": "Anleitung zur manuellen Pr\u00fcfung der CSV"
+  },
+  {
+   "default": "Folgende Felder sollten vor dem Import in der CSV manuell gepr\u00fcft werden. Der Pfeil beschreibt, welche CSV-Spalte sich auf welches ERPNext Feld bezieht.\\n\u2022 \\\"Customer Reference Number\\\" -> \\\"Interne Kundennummer\\\" auf KUNDE (Wenn dort der importierte Wert nicht gefunden wird, wird f\u00fcr den Kunden keine Rechnung erstellt.)\\n\u2022 \\\"Product Code\\\" -> \\\"Externe Artikelnummer\\\" auf ARTIKEL (Wenn keine passende externe Artikelnummer gefunden wird, wird keine Rechnung mit den Artikeldaten generiert.)\\n\u2022 \\\"Licenses Count\\\" -> Menge des Artikels auf der AUSGANGSRECHNUNG\\n\u2022 \\\"Customer Price Per License\\\" -> Kundenpreis f\u00fcr einen einzelnen Artikel\\n\u2022 \\\"Customer Total\\\" -> Gesamtpreis des Artikels",
+   "description": "Pr\u00fcfungsanweisungen f\u00fcr CSV-Import",
+   "fieldname": "csv_manual_check_instructions",
+   "fieldtype": "Text",
+   "label": "Anweisungen",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2025-08-26 11:15:54.096785",
+ "modified_by": "Administrator",
+ "module": "Csv Import Hornetsecurity",
+ "name": "CSV Import Hornetsecurity Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

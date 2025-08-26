@@ -1,0 +1,46 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-08-25 11:34:16.197228",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "kundenname",
+  "datum",
+  "rabatt_wert_in_prozent"
+ ],
+ "fields": [
+  {
+   "fieldname": "kundenname",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Kundenname"
+  },
+  {
+   "fieldname": "datum",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Datum"
+  },
+  {
+   "fieldname": "rabatt_wert_in_prozent",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Rabatt-Wert in %"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2025-08-25 11:39:08.472792",
+ "modified_by": "Administrator",
+ "module": "Csv Import Hornetsecurity",
+ "name": "Hornetsecurity Rabattwerte je Kunde",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
