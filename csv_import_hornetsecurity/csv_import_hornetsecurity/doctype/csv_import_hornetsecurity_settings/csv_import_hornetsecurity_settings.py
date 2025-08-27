@@ -1,8 +1,6 @@
 # Copyright (c) 2025, ahmad mohammad and contributors
 # For license information, please see license.txt
 # Copyright (c) 2025, ahmad mohammad and contributors
-# For license information, please see license.txt
-# File: csv_import_hornetsecurity/csv_import_hornetsecurity/csv_import_hornetsecurity_settings/csv_import_hornetsecurity_settings.py
 # Copyright (c) 2025, ahmad mohammad and contributors
 # For license information, please see license.txt
 # File: csv_import_hornetsecurity/csv_import_hornetsecurity/csv_import_hornetsecurity_settings/csv_import_hornetsecurity_settings.py
@@ -40,7 +38,7 @@ def process_csv_import(doc_name, file_content, file_name):
             # If it's bytes, decode directly
             csv_text = file_content.decode('utf-8')
         
-        # Parse CSV content with comma delimiter (UTF-8 format)
+        # Parse CSV content with semicolon delimiter (UTF-8 format)
         csv_reader = csv.DictReader(io.StringIO(csv_text), delimiter=';')
         
         # Process data - Group by Customer Reference Number AND Product Code
@@ -65,8 +63,8 @@ def process_csv_import(doc_name, file_content, file_name):
                     errors.append(f"Missing Product Code in line {i+2}")
                     continue
                 
-                # Convert licenses count to float
-                licenses_count = flt(licenses_count_str)
+                # Convert licenses count and prices (German format)
+                licenses_count = convert_german_number(licenses_count_str)
                 total_licenses_before += abs(licenses_count)
                 
                 # Create unique key for customer + product combination
@@ -102,14 +100,14 @@ def process_csv_import(doc_name, file_content, file_name):
             
             for row in data['rows']:
                 try:
-                    qty = flt(row.get('Licenses Count', 0))
-                    price_per_license = flt(row.get('Customer Price Per License', 0))
-                    customer_total = flt(row.get('Customer Total', 0))
+                    qty = convert_german_number(row.get('Licenses Count', 0))
+                    price_per_license = convert_german_number(row.get('Customer Price Per License', 0))
+                    customer_total = convert_german_number(row.get('Customer Total', 0))
                     
                     total_qty += qty
                     total_amount += customer_total
                     rate = price_per_license  # Should be same for all rows of same product
-                    product_name = row.get('Product Name', '').strip()
+                    product_name = row.get('Product', '').strip()
                     
                 except Exception as e:
                     errors.append(f"Error aggregating data for {customer_ref_nr} - {data['product_code']}: {str(e)}")
@@ -212,6 +210,15 @@ def process_csv_import(doc_name, file_content, file_name):
             'status': 'error',
             'message': f"Import failed: {str(e)}"
         }
+
+def convert_german_number(number_str):
+    """Convert German number format (4,5) to float (4.5)"""
+    if not number_str:
+        return 0.0
+    try:
+        return flt(str(number_str).replace(',', '.'))
+    except:
+        return 0.0
 
 def get_tax_account_rate(tax_account_name):
     """Fetch tax rate dynamically from Account DocType"""

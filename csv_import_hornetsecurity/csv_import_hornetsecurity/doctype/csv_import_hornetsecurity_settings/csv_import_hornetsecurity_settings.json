@@ -70,7 +70,6 @@
    "label": "Anleitung zur manuellen Pr\u00fcfung der CSV"
   },
   {
-   "default": "Folgende Felder sollten vor dem Import in der CSV manuell gepr\u00fcft werden. Der Pfeil beschreibt, welche CSV-Spalte sich auf welches ERPNext Feld bezieht.\\n\u2022 \\\"Customer Reference Number\\\" -> \\\"Interne Kundennummer\\\" auf KUNDE (Wenn dort der importierte Wert nicht gefunden wird, wird f\u00fcr den Kunden keine Rechnung erstellt.)\\n\u2022 \\\"Product Code\\\" -> \\\"Externe Artikelnummer\\\" auf ARTIKEL (Wenn keine passende externe Artikelnummer gefunden wird, wird keine Rechnung mit den Artikeldaten generiert.)\\n\u2022 \\\"Licenses Count\\\" -> Menge des Artikels auf der AUSGANGSRECHNUNG\\n\u2022 \\\"Customer Price Per License\\\" -> Kundenpreis f\u00fcr einen einzelnen Artikel\\n\u2022 \\\"Customer Total\\\" -> Gesamtpreis des Artikels",
    "description": "Pr\u00fcfungsanweisungen f\u00fcr CSV-Import",
    "fieldname": "csv_manual_check_instructions",
    "fieldtype": "Text",
@@ -82,7 +81,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2025-08-26 11:15:54.096785",
+ "modified": "2025-08-27 12:08:45.579829",
  "modified_by": "Administrator",
  "module": "Csv Import Hornetsecurity",
  "name": "CSV Import Hornetsecurity Settings",
