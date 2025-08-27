@@ -18,16 +18,17 @@
   },
   {
    "fieldname": "name_der_csv",
-   "fieldtype": "Data",
+   "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Name der CSV"
+   "label": "Name der CSV",
+   "options": "File"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2025-08-25 11:42:31.836667",
+ "modified": "2025-08-27 14:46:46.092168",
  "modified_by": "Administrator",
  "module": "Csv Import Hornetsecurity",
  "name": "Hornetsecurity Importhistorie",

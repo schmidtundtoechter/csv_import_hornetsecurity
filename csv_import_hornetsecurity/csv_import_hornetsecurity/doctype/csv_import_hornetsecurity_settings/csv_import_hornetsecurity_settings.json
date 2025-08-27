@@ -10,6 +10,7 @@
   "section_break_neqv",
   "nullrechnungen_unterdruecken",
   "csv_import_button",
+  "tax_account",
   "section_break_ljaj",
   "hornetsecurity_rabattwerte_je_kunde",
   "section_break_bsvf",
@@ -75,13 +76,19 @@
    "fieldtype": "Text",
    "label": "Anweisungen",
    "read_only": 1
+  },
+  {
+   "fieldname": "tax_account",
+   "fieldtype": "Link",
+   "label": "Tax Account",
+   "options": "Account"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2025-08-27 12:08:45.579829",
+ "modified": "2025-08-27 14:45:25.707179",
  "modified_by": "Administrator",
  "module": "Csv Import Hornetsecurity",
  "name": "CSV Import Hornetsecurity Settings",
