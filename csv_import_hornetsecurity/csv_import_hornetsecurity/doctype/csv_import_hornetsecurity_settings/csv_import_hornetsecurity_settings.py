@@ -1,8 +1,5 @@
 # Copyright (c) 2025, ahmad mohammad and contributors
 # For license information, please see license.txt
-# Copyright (c) 2025, ahmad mohammad and contributors
-# Copyright (c) 2025, ahmad mohammad and contributors
-# For license information, please see license.txt
 # File: csv_import_hornetsecurity/csv_import_hornetsecurity/csv_import_hornetsecurity_settings/csv_import_hornetsecurity_settings.py
 
 import frappe
@@ -18,8 +15,11 @@ import re
 class CSVImportHornetsecuritySettings(Document):
     def before_save(self):
         """Validate settings before save"""
-        pass
-        
+        if self.tax_account:
+            # Validate that the tax account exists
+            if not frappe.db.exists("Account", self.tax_account):
+                frappe.throw(f"Tax Account {self.tax_account} does not exist")
+
 @frappe.whitelist()
 def process_csv_import(doc_name, file_content, file_name):
     """Main function to process Hornetsecurity CSV import"""
@@ -49,6 +49,7 @@ def process_csv_import(doc_name, file_content, file_name):
         customer_product_data = {}
         total_licenses_before = 0
         errors = []
+        csv_currency = "EUR"  # Default currency for Hornetsecurity
         
         # Process each row
         rows = list(csv_reader)
@@ -58,6 +59,10 @@ def process_csv_import(doc_name, file_content, file_name):
                 customer_ref_nr = row.get('Customer Reference Number', '').strip()
                 product_code = row.get('Product Code', '').strip()
                 licenses_count_str = row.get('Licenses Count', '0').strip()
+                
+                # Extract currency from first row (assuming all rows have same currency)
+                if i == 0:
+                    csv_currency = row.get('Currency', 'EUR').strip()
                 
                 if not customer_ref_nr:
                     errors.append(f"Missing Customer Reference Number in line {i+2}")
@@ -170,7 +175,7 @@ def process_csv_import(doc_name, file_content, file_name):
                 
                 # Only create invoice if we have valid items
                 if valid_items:
-                    invoice = create_hornetsecurity_sales_invoice_safe(customer_ref_nr, valid_items, settings_doc, errors)
+                    invoice = create_hornetsecurity_sales_invoice_safe(customer_ref_nr, valid_items, settings_doc, errors, csv_currency)
                     if invoice:
                         invoices_created += 1
                         successful_customers.append(customer_ref_nr)
@@ -224,6 +229,111 @@ def convert_german_number(number_str):
     except:
         return 0.0
 
+def get_currency_mapping():
+    """Currency mapping from CSV values to ERPNext currency codes"""
+    # Mapping for common currencies - add more as needed
+    currency_map = {
+        # Hornetsecurity uses ISO codes (likely no mapping needed)
+        "EUR": "EUR",
+        "USD": "USD",
+        "CHF": "CHF",
+        "GBP": "GBP",
+        "JPY": "JPY",
+        "CNY": "CNY",
+        "AUD": "AUD",
+        "CAD": "CAD",
+        
+        # Full currency names (in case they're used)
+        "Euro": "EUR",
+        "US Dollar": "USD", 
+        "United States Dollar": "USD",
+        "Swiss Franc": "CHF",
+        "Pound Sterling": "GBP",
+        "British Pound": "GBP",
+        "Japanese Yen": "JPY",
+        "Chinese Yuan": "CNY",
+        "Australian Dollar": "AUD",
+        "Canadian Dollar": "CAD"
+    }
+    return currency_map
+
+def get_company_default_currency():
+    """Get default currency from the current company"""
+    try:
+        # Get the default company
+        company = frappe.defaults.get_user_default("Company")
+        if not company:
+            # Fallback to first company found
+            companies = frappe.get_all("Company", fields=["name"], limit=1)
+            company = companies[0]["name"] if companies else None
+        
+        if company:
+            return frappe.get_cached_value("Company", company, "default_currency") or "EUR"
+        
+        return "EUR"  # Final fallback
+        
+    except Exception as e:
+        frappe.log_error(f"Error getting company default currency: {str(e)}")
+        return "EUR"
+
+def get_invoice_currency(csv_currency):
+    """Get ERPNext currency code from CSV currency value"""
+    try:
+        currency_map = get_currency_mapping()
+        default_company_currency = get_company_default_currency()
+        
+        # Clean the CSV currency value
+        csv_currency = str(csv_currency).strip() if csv_currency else ""
+        
+        # Try to map the currency
+        if csv_currency in currency_map:
+            return currency_map[csv_currency]
+        
+        # If currency exists in ERPNext as-is, use it
+        if frappe.db.exists("Currency", csv_currency):
+            return csv_currency
+            
+        # Fallback to company default currency
+        frappe.log_error(f"Unknown currency '{csv_currency}', using default: {default_company_currency}")
+        return default_company_currency
+        
+    except Exception as e:
+        frappe.log_error(f"Error mapping currency '{csv_currency}': {str(e)}")
+        return get_company_default_currency()
+
+def ensure_currency_exchange_rate(from_currency, to_currency, exchange_date=None):
+    """Ensure currency exchange rate exists, return rate if found"""
+    try:
+        if from_currency == to_currency:
+            # Same currency, no exchange rate needed
+            return 1.0
+            
+        if not exchange_date:
+            exchange_date = today()
+            
+        # Check if exchange rate already exists
+        existing_rate = frappe.get_all('Currency Exchange',
+            filters={
+                'from_currency': from_currency,
+                'to_currency': to_currency,
+                'date': exchange_date
+            },
+            fields=['exchange_rate']
+        )
+        
+        if existing_rate:
+            return existing_rate[0]['exchange_rate']
+        
+        # No exchange rate found - log warning and return None
+        frappe.log_error(f"No exchange rate found for {from_currency} to {to_currency} on {exchange_date}")
+        return None
+        
+    except Exception as e:
+        frappe.log_error(f"Error checking exchange rate {from_currency} to {to_currency}: {str(e)}")
+        return None
+    
+
+    
 def create_app_folder_if_not_exists(app_name):
     """Create folder for app in File doctype if it doesn't exist"""
     try:
@@ -315,8 +425,8 @@ def get_dynamic_tax_rate(settings_doc):
         frappe.log_error(f"Error getting tax rate from account {settings_doc.tax_account}: {str(e)}")
         return 19.0  # Default fallback
 
-def create_hornetsecurity_sales_invoice_safe(customer_ref_nr, items_data, settings_doc, errors):
-    """Create sales invoice for Hornetsecurity customer - SAFE VERSION"""
+def create_hornetsecurity_sales_invoice_safe(customer_ref_nr, items_data, settings_doc, errors, csv_currency):
+    """Create sales invoice for Hornetsecurity customer - SAFE VERSION with Currency"""
     
     try:
         # Get customer (already validated to exist)
@@ -325,9 +435,19 @@ def create_hornetsecurity_sales_invoice_safe(customer_ref_nr, items_data, settin
             fields=['name', 'customer_name']
         )[0]
         
+        # Get company default currency
+        company_currency = get_company_default_currency()
+        
+        # Determine invoice currency from CSV
+        invoice_currency = get_invoice_currency(csv_currency)
+        
+        # Ensure exchange rate exists
+        ensure_currency_exchange_rate(invoice_currency, company_currency)
+        
         # Create sales invoice
         invoice = frappe.new_doc('Sales Invoice')
         invoice.customer = customer['name']
+        invoice.currency = invoice_currency  # SET THE CURRENCY
         invoice.posting_date = today()
         invoice.due_date = add_months(today(), 1)
         invoice.update_stock = 0

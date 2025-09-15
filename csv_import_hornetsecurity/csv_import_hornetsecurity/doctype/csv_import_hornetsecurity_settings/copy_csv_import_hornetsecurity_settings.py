@@ -13,12 +13,13 @@ import io
 from datetime import datetime
 import traceback
 import base64
+import re
 
 class CSVImportHornetsecuritySettings(Document):
     def before_save(self):
         """Validate settings before save"""
         pass
-
+        
 @frappe.whitelist()
 def process_csv_import(doc_name, file_content, file_name):
     """Main function to process Hornetsecurity CSV import"""
@@ -37,6 +38,9 @@ def process_csv_import(doc_name, file_content, file_name):
         else:
             # If it's bytes, decode directly
             csv_text = file_content.decode('utf-8')
+        
+        # Save CSV file to folder structure
+        saved_file_name = save_csv_file_to_folder(file_content, file_name, "Hornetsecurity")
         
         # Parse CSV content with semicolon delimiter (UTF-8 format)
         csv_reader = csv.DictReader(io.StringIO(csv_text), delimiter=';')
@@ -182,15 +186,15 @@ def process_csv_import(doc_name, file_content, file_name):
         # Generate report
         report = generate_hornetsecurity_report(total_licenses_before, total_licenses_after, invoices_created, errors, successful_customers)
         
-        # Update history and results
+        # Update history and results with file link
         settings_doc.append('hornetsecurity_importhistorie', {
             'importdatum': datetime.now(),
-            'name_der_csv': file_name
+            'name_der_csv': saved_file_name  # Now links to File doctype
         })
         
         settings_doc.append('hornetsecurity_importergebnis', {
             'datum': datetime.now(),
-            'name_der_csv': file_name,
+            'name_der_csv': saved_file_name,  # Now links to File doctype
             'importergebnis': report
         })
         
@@ -220,21 +224,95 @@ def convert_german_number(number_str):
     except:
         return 0.0
 
-def get_tax_account_rate(tax_account_name):
-    """Fetch tax rate dynamically from Account DocType"""
+def create_app_folder_if_not_exists(app_name):
+    """Create folder for app in File doctype if it doesn't exist"""
     try:
-        account = frappe.get_doc("Account", tax_account_name)
-        # The tax rate might be stored in different fields depending on your setup
-        # Common field names: tax_rate, rate, account_rate
+        folder_name = f"{app_name} CSV Imports"
+        
+        # Check if folder already exists
+        existing_folder = frappe.get_all('File', 
+            filters={
+                'file_name': folder_name,
+                'is_folder': 1
+            }, 
+            fields=['name']
+        )
+        
+        if existing_folder:
+            return existing_folder[0]['name']
+        
+        # Create new folder
+        folder_doc = frappe.new_doc('File')
+        folder_doc.file_name = folder_name
+        folder_doc.is_folder = 1
+        folder_doc.folder = 'Home'
+        folder_doc.insert(ignore_permissions=True)
+        
+        return folder_doc.name
+        
+    except Exception as e:
+        frappe.log_error(f"Error creating folder for {app_name}: {str(e)}")
+        return None
+
+def save_csv_file_to_folder(file_content, file_name, app_name):
+    """Save CSV file to app-specific folder and return file doc name"""
+    try:
+        # Create or get app folder
+        folder_name = create_app_folder_if_not_exists(app_name)
+        if not folder_name:
+            return file_name  # Fallback to original filename if folder creation fails
+        
+        # Create unique filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        unique_filename = f"{timestamp}_{file_name}"
+        
+        # Decode base64 content if needed
+        if isinstance(file_content, str):
+            try:
+                file_bytes = base64.b64decode(file_content)
+            except:
+                file_bytes = file_content.encode('utf-8')
+        else:
+            file_bytes = file_content
+        
+        # Create file doc
+        file_doc = frappe.new_doc('File')
+        file_doc.file_name = unique_filename
+        file_doc.folder = folder_name
+        file_doc.content = file_bytes
+        file_doc.is_private = 0  # Make it accessible
+        file_doc.insert(ignore_permissions=True)
+        
+        return file_doc.name
+        
+    except Exception as e:
+        frappe.log_error(f"Error saving CSV file {file_name}: {str(e)}")
+        return file_name  # Fallback to original filename
+
+def get_dynamic_tax_rate(settings_doc):
+    """Get tax rate from dynamic tax account field"""
+    try:
+        if not settings_doc.tax_account:
+            frappe.log_error("No tax account configured in settings")
+            return 19.0  # Default fallback
+        
+        account = frappe.get_doc("Account", settings_doc.tax_account)
+        
+        # Check various possible tax rate fields
         if hasattr(account, 'tax_rate') and account.tax_rate:
             return flt(account.tax_rate)
         elif hasattr(account, 'rate') and account.rate:
             return flt(account.rate)
         else:
-            # If no rate found, default to 19%
-            return 19.0
+            # Extract rate from account name if pattern exists (e.g., "19 %" in name)
+            rate_match = re.search(r'(\d+(?:\.\d+)?)\s*%', account.account_name)
+            if rate_match:
+                return flt(rate_match.group(1))
+            
+            return 19.0  # Default fallback
+            
     except Exception as e:
-        frappe.log_error(f"Error fetching tax rate for account {tax_account_name}: {str(e)}")
+        frappe.log_error(f"Error getting tax rate from account {settings_doc.tax_account}: {str(e)}")
         return 19.0  # Default fallback
 
 def create_hornetsecurity_sales_invoice_safe(customer_ref_nr, items_data, settings_doc, errors):
@@ -283,19 +361,19 @@ def create_hornetsecurity_sales_invoice_safe(customer_ref_nr, items_data, settin
         if customer_discount_percentage > 0:
             invoice.additional_discount_percentage = customer_discount_percentage
         
-        # Add taxes with dynamic rate from Account DocType
+        # Add taxes with dynamic rate from settings
         try:
-            tax_account = "1520 - Abziehbare Vorsteuer 19 % - AZ ITD - ÜJ"
-            
-            # Fetch tax rate dynamically from Account
-            tax_rate = get_tax_account_rate(tax_account)
-            
-            invoice.append('taxes', {
-                'charge_type': 'On Net Total',
-                'account_head': tax_account,
-                'rate': tax_rate,  # Dynamic rate from Account DocType
-                'description': f'VAT {tax_rate}%'
-            })
+            if not settings_doc.tax_account:
+                errors.append(f"No tax account configured for customer {customer_ref_nr}")
+            else:
+                tax_rate = get_dynamic_tax_rate(settings_doc)
+                
+                invoice.append('taxes', {
+                    'charge_type': 'On Net Total',
+                    'account_head': settings_doc.tax_account,
+                    'rate': tax_rate,
+                    'description': f'VAT {tax_rate}%'
+                })
                 
         except Exception as e:
             errors.append(f"Error adding tax to invoice for customer {customer_ref_nr}: {str(e)}")
