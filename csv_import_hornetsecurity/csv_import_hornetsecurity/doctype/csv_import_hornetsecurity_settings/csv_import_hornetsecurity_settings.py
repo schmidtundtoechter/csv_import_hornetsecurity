@@ -26,6 +26,13 @@ def process_csv_import(doc_name, file_content, file_name):
     try:
         settings_doc = frappe.get_doc("CSV Import Hornetsecurity Settings", doc_name)
         
+        # Validate required field for OTHER handling
+        if not settings_doc.artikelgruppe:
+            return {
+                'status': 'error',
+                'message': 'Artikelgruppe field is required for handling OTHER products'
+            }
+        
         # Handle file content - it might be base64 encoded or already a string
         if isinstance(file_content, str):
             try:
@@ -49,7 +56,7 @@ def process_csv_import(doc_name, file_content, file_name):
         customer_product_data = {}
         total_licenses_before = 0
         errors = []
-        csv_currency = "EUR"  # Default currency for Hornetsecurity
+        created_items_log = []
         
         # Process each row
         rows = list(csv_reader)
@@ -59,10 +66,7 @@ def process_csv_import(doc_name, file_content, file_name):
                 customer_ref_nr = row.get('Customer Reference Number', '').strip()
                 product_code = row.get('Product Code', '').strip()
                 licenses_count_str = row.get('Licenses Count', '0').strip()
-                
-                # Extract currency from first row (assuming all rows have same currency)
-                if i == 0:
-                    csv_currency = row.get('Currency', 'EUR').strip()
+                currency = row.get('Currency', '').strip()
                 
                 if not customer_ref_nr:
                     errors.append(f"Missing Customer Reference Number in line {i+2}")
@@ -76,16 +80,30 @@ def process_csv_import(doc_name, file_content, file_name):
                 licenses_count = convert_german_number(licenses_count_str)
                 total_licenses_before += abs(licenses_count)
                 
-                # Create unique key for customer + product combination
-                key = f"{customer_ref_nr}|{product_code}"
+                # Create unique key - for OTHER cases, use the Product name as unique identifier
+                if product_code.upper() == "OTHER":
+                    product_name = row.get('Product', '').strip()
+                    if not product_name:
+                        errors.append(f"Missing Product name for OTHER product in line {i+2}")
+                        continue
+                    key_identifier = f"OTHER_{product_name}"
+                else:
+                    key_identifier = product_code
+                    
+                key = f"{customer_ref_nr}|{key_identifier}"
                 
                 if key not in customer_product_data:
                     customer_product_data[key] = {
                         'customer_ref_nr': customer_ref_nr,
                         'product_code': product_code,
+                        'currency': currency,  # Store currency per customer-product
                         'rows': []
                     }
-                    
+                
+                # Validate currency consistency for same customer-product
+                if customer_product_data[key]['currency'] != currency:
+                    errors.append(f"Currency mismatch for {customer_ref_nr}-{key_identifier}: {customer_product_data[key]['currency']} vs {currency}")
+                
                 customer_product_data[key]['rows'].append(row)
                         
             except Exception as e:
@@ -126,6 +144,7 @@ def process_csv_import(doc_name, file_content, file_name):
                 customer_invoices[customer_ref_nr].append({
                     'product_code': data['product_code'],
                     'product_name': product_name,
+                    'currency': data['currency'],  # Pass currency through
                     'total_qty': total_qty,
                     'rate': rate,
                     'total_amount': total_amount
@@ -148,34 +167,15 @@ def process_csv_import(doc_name, file_content, file_name):
                     errors.append(f"Customer not found for reference number: {customer_ref_nr}")
                     continue
                 
-                # Validate all items exist before creating invoice
-                valid_items = []
-                for item_data in items_data:
-                    product_code = item_data['product_code']
-                    
-                    # Find item by Product Code (external article number)
-                    item = frappe.get_all('Item', 
-                        filters={'custom_externe_artikelnummer': product_code}, 
-                        fields=['name', 'item_name', 'description']
-                    )
-                    
-                    if not item:
-                        errors.append(f"Item not found for product code: {product_code} (Customer: {customer_ref_nr})")
-                        continue
-                    
-                    # Check if quantity is valid
-                    if item_data['total_qty'] <= 0:
-                        errors.append(f"Invalid quantity {item_data['total_qty']} for product {product_code} (Customer: {customer_ref_nr})")
-                        continue
-                    
-                    item_data['item_code'] = item[0]['name']
-                    item_data['item_name'] = item[0].get('item_name', '')
-                    item_data['description'] = item[0].get('description', '')
-                    valid_items.append(item_data)
+                # Validate and process items (handles OTHER cases)
+                valid_items = validate_and_process_items_hornetsecurity(
+                    customer_ref_nr, items_data, settings_doc, errors, created_items_log
+                )
                 
-                # Only create invoice if we have valid items
                 if valid_items:
-                    invoice = create_hornetsecurity_sales_invoice_safe(customer_ref_nr, valid_items, settings_doc, errors, csv_currency)
+                    invoice = create_hornetsecurity_sales_invoice_safe(
+                        customer_ref_nr, valid_items, settings_doc, errors
+                    )
                     if invoice:
                         invoices_created += 1
                         successful_customers.append(customer_ref_nr)
@@ -188,8 +188,11 @@ def process_csv_import(doc_name, file_content, file_name):
                 errors.append(f"Error processing customer {customer_ref_nr}: {str(e)}")
                 continue
         
-        # Generate report
-        report = generate_hornetsecurity_report(total_licenses_before, total_licenses_after, invoices_created, errors, successful_customers)
+        # Generate enhanced report
+        report = generate_hornetsecurity_report_with_items(
+            total_licenses_before, total_licenses_after, invoices_created, 
+            errors, successful_customers, created_items_log
+        )
         
         # Update history and results with file link
         settings_doc.append('hornetsecurity_importhistorie', {
@@ -301,39 +304,151 @@ def get_invoice_currency(csv_currency):
         frappe.log_error(f"Error mapping currency '{csv_currency}': {str(e)}")
         return get_company_default_currency()
 
-def ensure_currency_exchange_rate(from_currency, to_currency, exchange_date=None):
-    """Ensure currency exchange rate exists, return rate if found"""
+def get_conversion_rate(from_currency, to_currency, exchange_date=None):
+    """Get conversion rate from Currency Exchange records"""
     try:
         if from_currency == to_currency:
-            # Same currency, no exchange rate needed
             return 1.0
             
         if not exchange_date:
             exchange_date = today()
-            
-        # Check if exchange rate already exists
-        existing_rate = frappe.get_all('Currency Exchange',
+        
+        # Look for exact exchange rate record
+        exchange_rate = frappe.get_all('Currency Exchange',
             filters={
                 'from_currency': from_currency,
                 'to_currency': to_currency,
-                'date': exchange_date
+                'date': exchange_date,
+                'for_selling': 1  # Important: must be enabled for selling
             },
-            fields=['exchange_rate']
+            fields=['exchange_rate'],
+            limit=1
         )
         
-        if existing_rate:
-            return existing_rate[0]['exchange_rate']
+        if exchange_rate:
+            return flt(exchange_rate[0]['exchange_rate'])
         
-        # No exchange rate found - log warning and return None
-        frappe.log_error(f"No exchange rate found for {from_currency} to {to_currency} on {exchange_date}")
-        return None
+        # Fallback: try without date filter (get latest)
+        exchange_rate = frappe.get_all('Currency Exchange',
+            filters={
+                'from_currency': from_currency,
+                'to_currency': to_currency,
+                'for_selling': 1
+            },
+            fields=['exchange_rate'],
+            order_by='date desc',
+            limit=1
+        )
+        
+        if exchange_rate:
+            return flt(exchange_rate[0]['exchange_rate'])
+        
+        # Final fallback
+        return 1.0
         
     except Exception as e:
-        frappe.log_error(f"Error checking exchange rate {from_currency} to {to_currency}: {str(e)}")
-        return None
-    
+        frappe.log_error(f"Error getting conversion rate {from_currency} to {to_currency}: {str(e)}")
+        return 1.0
 
+def create_item_for_other_product(product_name, item_group, created_items_log):
+    """Create new Item for OTHER product code cases using Product name as both item_code and item_name"""
+    try:
+        # Use Product name as item_code (cleaned for ERPNext compatibility)
+        item_code = product_name.replace(' ', '_').replace('(', '').replace(')', '').replace('-', '_')
+        
+        # Check if item already exists by item_code
+        existing_item = frappe.get_all('Item', 
+            filters={'item_code': item_code}, 
+            fields=['name']
+        )
+        
+        if existing_item:
+            created_items_log.append(f"Item {item_code} already exists, using existing item")
+            return existing_item[0]['name']
+        
+        # Create new item
+        item_doc = frappe.new_doc('Item')
+        item_doc.item_code = item_code        # Use Product as item_code (cleaned)
+        item_doc.item_name = product_name     # Use Product as item_name
+        item_doc.item_group = item_group      # Use configured item group
+        item_doc.stock_uom = "Stk"           # Default Unit of Measure
+        item_doc.is_stock_item = 0           # Service item
+        item_doc.is_sales_item = 1           # Can be sold
+        item_doc.custom_externe_artikelnummer = "OTHER"  # Mark as OTHER type
+        
+        item_doc.insert(ignore_permissions=True)
+        
+        created_items_log.append(f"Created new item: {item_code} - {product_name}")
+        return item_doc.name
+        
+    except Exception as e:
+        frappe.log_error(f"Error creating item for OTHER product {product_name}: {str(e)}")
+        created_items_log.append(f"Failed to create item {product_name}: {str(e)}")
+        return None
+
+def validate_and_process_items_hornetsecurity(customer_ref_nr, items_data, settings_doc, errors, created_items_log):
+    """Validate items and handle OTHER product codes"""
+    valid_items = []
     
+    for item_data in items_data:
+        try:
+            product_code = item_data['product_code']
+            product_name = item_data.get('product_name', '')
+            
+            if product_code.upper() == "OTHER":
+                # Handle OTHER case - create item dynamically
+                if not settings_doc.artikelgruppe:
+                    errors.append(f"Artikelgruppe not configured for OTHER items (Customer: {customer_ref_nr})")
+                    continue
+                
+                if not product_name:
+                    errors.append(f"Product name missing for OTHER item (Customer: {customer_ref_nr})")
+                    continue
+                
+                # Create or get existing item using Product name as item_code and item_name
+                item_code = create_item_for_other_product(
+                    product_name, 
+                    settings_doc.artikelgruppe,
+                    created_items_log
+                )
+                
+                if not item_code:
+                    errors.append(f"Failed to create item for OTHER product {product_name} (Customer: {customer_ref_nr})")
+                    continue
+                    
+                # Update item_data with the created item
+                item_data['item_code'] = item_code
+                item_data['item_name'] = product_name
+                item_data['description'] = product_name
+                
+            else:
+                # Normal case - find item by external article number
+                item = frappe.get_all('Item', 
+                    filters={'custom_externe_artikelnummer': product_code}, 
+                    fields=['name', 'item_name', 'description']
+                )
+                
+                if not item:
+                    errors.append(f"Item not found for product code: {product_code} (Customer: {customer_ref_nr})")
+                    continue
+                
+                item_data['item_code'] = item[0]['name']
+                item_data['item_name'] = item[0].get('item_name', '')
+                item_data['description'] = item[0].get('description', '')
+            
+            # Check if quantity is valid
+            if item_data['total_qty'] <= 0:
+                errors.append(f"Invalid quantity {item_data['total_qty']} for product {product_code} (Customer: {customer_ref_nr})")
+                continue
+            
+            valid_items.append(item_data)
+            
+        except Exception as e:
+            errors.append(f"Error processing item {product_code} for customer {customer_ref_nr}: {str(e)}")
+            continue
+    
+    return valid_items
+
 def create_app_folder_if_not_exists(app_name):
     """Create folder for app in File doctype if it doesn't exist"""
     try:
@@ -424,55 +539,9 @@ def get_dynamic_tax_rate(settings_doc):
     except Exception as e:
         frappe.log_error(f"Error getting tax rate from account {settings_doc.tax_account}: {str(e)}")
         return 19.0  # Default fallback
-    
-def get_conversion_rate(from_currency, to_currency, exchange_date=None):
-    """Get conversion rate from Currency Exchange records"""
-    try:
-        if from_currency == to_currency:
-            return 1.0
-            
-        if not exchange_date:
-            exchange_date = today()
-        
-        # Look for exact exchange rate record
-        exchange_rate = frappe.get_all('Currency Exchange',
-            filters={
-                'from_currency': from_currency,
-                'to_currency': to_currency,
-                'date': exchange_date,
-                'for_selling': 1  # Important: must be enabled for selling
-            },
-            fields=['exchange_rate'],
-            limit=1
-        )
-        
-        if exchange_rate:
-            return flt(exchange_rate[0]['exchange_rate'])
-        
-        # Fallback: try without date filter (get latest)
-        exchange_rate = frappe.get_all('Currency Exchange',
-            filters={
-                'from_currency': from_currency,
-                'to_currency': to_currency,
-                'for_selling': 1
-            },
-            fields=['exchange_rate'],
-            order_by='date desc',
-            limit=1
-        )
-        
-        if exchange_rate:
-            return flt(exchange_rate[0]['exchange_rate'])
-        
-        # Final fallback
-        return 1.0
-        
-    except Exception as e:
-        frappe.log_error(f"Error getting conversion rate {from_currency} to {to_currency}: {str(e)}")
-        return 1.0
 
-def create_hornetsecurity_sales_invoice_safe(customer_ref_nr, items_data, settings_doc, errors, csv_currency):
-    """Create sales invoice for Hornetsecurity customer - SAFE VERSION with Currency"""
+def create_hornetsecurity_sales_invoice_safe(customer_ref_nr, items_data, settings_doc, errors):
+    """Create sales invoice for Hornetsecurity customer with proper currency handling like Wortmann"""
     
     try:
         # Get customer (already validated to exist)
@@ -484,19 +553,18 @@ def create_hornetsecurity_sales_invoice_safe(customer_ref_nr, items_data, settin
         # Get company default currency
         company_currency = get_company_default_currency()
         
-        # Determine invoice currency from CSV
+        # Determine invoice currency from first item's currency (like Wortmann pattern)
+        csv_currency = items_data[0].get('currency', '') if items_data else ''
         invoice_currency = get_invoice_currency(csv_currency)
         
-        # Get conversion rate
+        # Get conversion rate (same as Wortmann)
         conversion_rate = get_conversion_rate(invoice_currency, company_currency)
-        
         
         # Create sales invoice
         invoice = frappe.new_doc('Sales Invoice')
         invoice.customer = customer['name']
         invoice.currency = invoice_currency  # SET THE CURRENCY
         invoice.conversion_rate = conversion_rate  # SET MANUAL CONVERSION RATE
-
         invoice.posting_date = today()
         invoice.due_date = add_months(today(), 1)
         invoice.update_stock = 0
@@ -576,8 +644,8 @@ def get_customer_discount(customer_name, discount_table):
         frappe.log_error(f"Error getting customer discount for {customer_name}: {str(e)}")
     return 0
 
-def generate_hornetsecurity_report(licenses_before, licenses_after, invoices_created, errors, successful_customers):
-    """Generate import report"""
+def generate_hornetsecurity_report_with_items(licenses_before, licenses_after, invoices_created, errors, successful_customers, created_items_log):
+    """Generate enhanced import report with item creation info"""
     report_lines = [
         f"Gesamtzahl Lizenzen vorher: {licenses_before}",
         f"Gesamtzahl Lizenzen nachher: {licenses_after}",
@@ -586,6 +654,11 @@ def generate_hornetsecurity_report(licenses_before, licenses_after, invoices_cre
     
     if successful_customers:
         report_lines.append(f"Erfolgreiche Kunden: {', '.join(successful_customers)}")
+    
+    if created_items_log:
+        report_lines.append(f"\nNeu erstellte Artikel:")
+        for item_log in created_items_log:
+            report_lines.append(f"- {item_log}")
     
     if errors:
         report_lines.append(f"\nFehler ({len(errors)}):")

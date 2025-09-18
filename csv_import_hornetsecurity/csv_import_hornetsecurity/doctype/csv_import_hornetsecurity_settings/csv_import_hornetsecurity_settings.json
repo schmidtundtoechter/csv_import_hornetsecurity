@@ -11,6 +11,7 @@
   "nullrechnungen_unterdruecken",
   "csv_import_button",
   "tax_account",
+  "artikelgruppe",
   "section_break_ljaj",
   "hornetsecurity_rabattwerte_je_kunde",
   "section_break_bsvf",
@@ -82,13 +83,20 @@
    "fieldtype": "Link",
    "label": "Tax Account",
    "options": "Account"
+  },
+  {
+   "description": "Wenn bei dem Import Artikel mit der ID OTHER neu angelegt werden m\u00fcssen, erhalten diese jene Artikelgruppe.",
+   "fieldname": "artikelgruppe",
+   "fieldtype": "Link",
+   "label": "Artikelgruppe",
+   "options": "Item Group"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2025-08-27 14:45:25.707179",
+ "modified": "2025-09-18 13:34:32.353837",
  "modified_by": "Administrator",
  "module": "Csv Import Hornetsecurity",
  "name": "CSV Import Hornetsecurity Settings",
