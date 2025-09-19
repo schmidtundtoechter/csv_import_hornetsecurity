@@ -351,10 +351,10 @@ def get_conversion_rate(from_currency, to_currency, exchange_date=None):
         return 1.0
 
 def create_item_for_other_product(product_name, item_group, created_items_log):
-    """Create new Item for OTHER product code cases using Product name as both item_code and item_name"""
+    """Create new Item for OTHER product code cases using Product name as-is for both item_code and item_name"""
     try:
-        # Use Product name as item_code (cleaned for ERPNext compatibility)
-        item_code = product_name.replace(' ', '_').replace('(', '').replace(')', '').replace('-', '_')
+        # Use Product name as-is for item_code (no formatting/cleaning)
+        item_code = product_name
         
         # Check if item already exists by item_code
         existing_item = frappe.get_all('Item', 
@@ -368,8 +368,8 @@ def create_item_for_other_product(product_name, item_group, created_items_log):
         
         # Create new item
         item_doc = frappe.new_doc('Item')
-        item_doc.item_code = item_code        # Use Product as item_code (cleaned)
-        item_doc.item_name = product_name     # Use Product as item_name
+        item_doc.item_code = product_name     # Use Product as-is for item_code
+        item_doc.item_name = product_name     # Use Product as-is for item_name
         item_doc.item_group = item_group      # Use configured item group
         item_doc.stock_uom = "Stk"           # Default Unit of Measure
         item_doc.is_stock_item = 0           # Service item
@@ -378,7 +378,7 @@ def create_item_for_other_product(product_name, item_group, created_items_log):
         
         item_doc.insert(ignore_permissions=True)
         
-        created_items_log.append(f"Created new item: {item_code} - {product_name}")
+        created_items_log.append(f"Created new item: {product_name}")
         return item_doc.name
         
     except Exception as e:
