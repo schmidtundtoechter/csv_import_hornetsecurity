@@ -54,18 +54,17 @@ def process_csv_import(doc_name, file_content, file_name):
         
         # Process data - Group by Customer Reference Number AND Product Code
         customer_product_data = {}
-        total_licenses_before = 0
         errors = []
         created_items_log = []
-        
+
         # Process each row
         rows = list(csv_reader)
+        total_rows_in_csv = len(rows)
         
         for i, row in enumerate(rows):
             try:
                 customer_ref_nr = row.get('Customer Reference Number', '').strip()
                 product_code = row.get('Product Code', '').strip()
-                licenses_count_str = row.get('Licenses Count', '0').strip()
                 currency = row.get('Currency', '').strip()
                 
                 if not customer_ref_nr:
@@ -75,10 +74,6 @@ def process_csv_import(doc_name, file_content, file_name):
                 if not product_code:
                     errors.append(f"Missing Product Code in line {i+1}")
                     continue
-                
-                # Convert licenses count and prices (German format)
-                licenses_count = convert_german_number(licenses_count_str)
-                total_licenses_before += abs(licenses_count)
                 
                 # Create unique key - for OTHER cases, use the Product name as unique identifier
                 if product_code.upper() == "OTHER":
@@ -168,7 +163,7 @@ def process_csv_import(doc_name, file_content, file_name):
         
         # Create invoices - RESILIENT APPROACH
         invoices_created = 0
-        total_licenses_after = 0
+        total_customers_in_csv = len(customer_invoices)
         successful_customers = []
         
         for customer_ref_nr, items_data in customer_invoices.items():
@@ -195,8 +190,6 @@ def process_csv_import(doc_name, file_content, file_name):
                     if invoice:
                         invoices_created += 1
                         successful_customers.append(customer_ref_nr)
-                        for item in invoice.items:
-                            total_licenses_after += flt(item.qty)
                 else:
                     errors.append(f"No valid items found for customer {customer_ref_nr}")
                     
@@ -206,7 +199,7 @@ def process_csv_import(doc_name, file_content, file_name):
         
         # Generate enhanced report
         report = generate_hornetsecurity_report_with_items(
-            total_licenses_before, total_licenses_after, invoices_created, 
+            total_rows_in_csv, total_customers_in_csv, invoices_created,
             errors, successful_customers, created_items_log
         )
         
@@ -690,16 +683,16 @@ def get_customer_discount(customer_name, discount_table):
         frappe.log_error(f"Error getting customer discount for {customer_name}: {str(e)}")
     return 0
 
-def generate_hornetsecurity_report_with_items(licenses_before, licenses_after, invoices_created, errors, successful_customers, created_items_log):
+def generate_hornetsecurity_report_with_items(total_rows_in_csv, total_customers_in_csv, invoices_created, errors, successful_customers, created_items_log):
     """Generate enhanced import report with item creation info"""
     report_lines = [
-        f"Gesamtzahl Lizenzen vorher: {licenses_before}",
-        f"Gesamtzahl Lizenzen nachher: {licenses_after}",
+        f"Gesamtzahl Zeilen in CSV: {total_rows_in_csv}",
+        f"Gesamtzahl Kunden in CSV: {total_customers_in_csv}",
         f"Gesamtzahl erz. Rechnungen: {invoices_created}"
     ]
-    
+
     if successful_customers:
-        report_lines.append(f"Erfolgreiche Kunden: {', '.join(successful_customers)}")
+        report_lines.append(f"Erfolgreich gefundene Kunden: {', '.join(successful_customers)}")
     
     if created_items_log:
         report_lines.append(f"\nNeu erstellte Artikel:")
