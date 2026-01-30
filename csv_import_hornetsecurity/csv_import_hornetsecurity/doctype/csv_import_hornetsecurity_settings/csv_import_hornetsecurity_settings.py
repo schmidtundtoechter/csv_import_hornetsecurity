@@ -69,11 +69,11 @@ def process_csv_import(doc_name, file_content, file_name):
                 currency = row.get('Currency', '').strip()
                 
                 if not customer_ref_nr:
-                    errors.append(f"Missing Customer Reference Number in line {i+2}")
+                    errors.append(f"Missing Customer Reference Number in line {i+1}")
                     continue
-                    
+
                 if not product_code:
-                    errors.append(f"Missing Product Code in line {i+2}")
+                    errors.append(f"Missing Product Code in line {i+1}")
                     continue
                 
                 # Convert licenses count and prices (German format)
@@ -84,7 +84,7 @@ def process_csv_import(doc_name, file_content, file_name):
                 if product_code.upper() == "OTHER":
                     product_name = row.get('Product', '').strip()
                     if not product_name:
-                        errors.append(f"Missing Product name for OTHER product in line {i+2}")
+                        errors.append(f"Missing Product name for OTHER product in line {i+1}")
                         continue
                     key_identifier = f"OTHER_{product_name}"
                 else:
@@ -102,12 +102,12 @@ def process_csv_import(doc_name, file_content, file_name):
                 
                 # Validate currency consistency for same customer-product
                 if customer_product_data[key]['currency'] != currency:
-                    errors.append(f"Currency mismatch for {customer_ref_nr}-{key_identifier}: {customer_product_data[key]['currency']} vs {currency}")
+                    errors.append(f"Currency mismatch for {customer_ref_nr}-{key_identifier} in line {i+1}: {customer_product_data[key]['currency']} vs {currency}")
                 
                 customer_product_data[key]['rows'].append(row)
                         
             except Exception as e:
-                errors.append(f"Error processing row {i+2}: {str(e)}")
+                errors.append(f"Error processing row {i+1}: {str(e)}")
                 continue
         
         # Group by customer for invoice creation (one invoice per customer)
@@ -124,22 +124,36 @@ def process_csv_import(doc_name, file_content, file_name):
             total_amount = 0
             rate = 0
             product_name = ""
-            
+            date_from_values = []
+            date_to_values = []
+
             for row in data['rows']:
                 try:
                     qty = convert_german_number(row.get('Licenses Count', 0))
                     price_per_license = convert_german_number(row.get('Customer Price Per License', 0))
                     customer_total = convert_german_number(row.get('Customer Total', 0))
-                    
+
                     total_qty += qty
                     total_amount += customer_total
                     rate = price_per_license  # Should be same for all rows of same product
                     product_name = row.get('Product', '').strip()
-                    
+
+                    # Collect date values
+                    date_from_str = row.get('Date From', '').strip()
+                    date_to_str = row.get('Date To', '').strip()
+                    if date_from_str:
+                        date_from_values.append(date_from_str)
+                    if date_to_str:
+                        date_to_values.append(date_to_str)
+
                 except Exception as e:
                     errors.append(f"Error aggregating data for {customer_ref_nr} - {data['product_code']}: {str(e)}")
                     continue
-            
+
+            # Determine date range (earliest Date From, latest Date To)
+            date_from = get_earliest_date(date_from_values)
+            date_to = get_latest_date(date_to_values)
+
             if total_qty > 0:  # Only add if we have valid quantity
                 customer_invoices[customer_ref_nr].append({
                     'product_code': data['product_code'],
@@ -147,7 +161,9 @@ def process_csv_import(doc_name, file_content, file_name):
                     'currency': data['currency'],  # Pass currency through
                     'total_qty': total_qty,
                     'rate': rate,
-                    'total_amount': total_amount
+                    'total_amount': total_amount,
+                    'date_from': date_from,
+                    'date_to': date_to
                 })
         
         # Create invoices - RESILIENT APPROACH
@@ -231,6 +247,29 @@ def convert_german_number(number_str):
         return flt(str(number_str).replace(',', '.'))
     except:
         return 0.0
+
+def parse_german_date(date_str):
+    """Parse date in DD.MM.YYYY format"""
+    try:
+        return datetime.strptime(date_str.strip(), '%d.%m.%Y')
+    except:
+        return None
+
+def get_earliest_date(date_strings):
+    """Get earliest date from list of DD.MM.YYYY strings"""
+    parsed = [parse_german_date(d) for d in date_strings if d]
+    parsed = [d for d in parsed if d is not None]
+    if parsed:
+        return min(parsed).strftime('%d.%m.%Y')
+    return ''
+
+def get_latest_date(date_strings):
+    """Get latest date from list of DD.MM.YYYY strings"""
+    parsed = [parse_german_date(d) for d in date_strings if d]
+    parsed = [d for d in parsed if d is not None]
+    if parsed:
+        return max(parsed).strftime('%d.%m.%Y')
+    return ''
 
 def get_currency_mapping():
     """Currency mapping from CSV values to ERPNext currency codes"""
@@ -576,11 +615,18 @@ def create_hornetsecurity_sales_invoice_safe(customer_ref_nr, items_data, settin
         items_added = 0
         for item_data in items_data:
             try:
+                # Build description with Leistungszeitraum
+                description = item_data.get('description') or item_data.get('item_name') or item_data.get('product_name')
+                date_from = item_data.get('date_from', '')
+                date_to = item_data.get('date_to', '')
+                if date_from and date_to:
+                    description = f"{description}\nLeistungszeitraum: von {date_from} bis {date_to}"
+
                 # Add item to invoice
                 invoice.append('items', {
                     'item_code': item_data['item_code'],
                     'customer_item_code': item_data['product_code'],
-                    'description': item_data.get('description') or item_data.get('item_name') or item_data.get('product_name'),
+                    'description': description,
                     'qty': item_data['total_qty'],
                     'rate': item_data['rate'],
                     'amount': item_data['total_amount']
