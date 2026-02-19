@@ -206,14 +206,7 @@ app_license = "mit"
 
 # User Data Protection
 # --------------------
-fixtures = [
-    {
-        "doctype": "CSV Import Hornetsecurity Settings",
-        "filters": {
-            "name": ["in", ["CSV Import Hornetsecurity Settings"]]  
-        }
-    }
-]
+
 # user_data_fields = [
 # 	{
 # 		"doctype": "{doctype_1}",
