@@ -4,7 +4,8 @@
 
 import frappe
 from frappe.model.document import Document
-from frappe.utils import today, add_months, flt, cint
+from frappe.utils import today, add_days, flt, cint
+from erpnext.accounts.party import get_due_date as get_erpnext_due_date
 import csv
 import io
 from datetime import datetime
@@ -598,9 +599,9 @@ def create_hornetsecurity_sales_invoice_safe(customer_ref_nr, items_data, settin
         invoice.currency = invoice_currency  # SET THE CURRENCY
         invoice.conversion_rate = conversion_rate  # SET MANUAL CONVERSION RATE
         invoice.posting_date = today()
-        invoice.due_date = add_months(today(), 1)
+        invoice.due_date = get_erpnext_due_date(today(), "Customer", customer['name'], invoice.company) or add_days(today(), 30)
         invoice.update_stock = 0
-        
+
         # Get customer discount if available
         customer_discount_percentage = get_customer_discount(customer['customer_name'], settings_doc.hornetsecurity_rabattwerte_je_kunde)
         
