@@ -602,6 +602,14 @@ def create_hornetsecurity_sales_invoice_safe(customer_ref_nr, items_data, settin
         invoice.due_date = get_erpnext_due_date(today(), "Customer", customer['name'], invoice.company) or add_days(today(), 30)
         invoice.update_stock = 0
 
+        billing_address = _get_billing_address_for_customer(customer['name'])
+        if billing_address:
+            invoice.customer_address = billing_address
+
+        billing_contact = _get_billing_contact_for_customer(customer['name'])
+        if billing_contact:
+            invoice.contact_person = billing_contact
+
         # Get customer discount if available
         customer_discount_percentage = get_customer_discount(customer['customer_name'], settings_doc.hornetsecurity_rabattwerte_je_kunde)
         
@@ -706,3 +714,40 @@ def generate_hornetsecurity_report_with_items(total_rows_in_csv, total_customers
             report_lines.append(f"- {error}")
     
     return "\n".join(report_lines)
+
+
+def _get_billing_address_for_customer(customer_name):
+    billing = frappe.get_all(
+        "Address",
+        filters=[
+            ["Dynamic Link", "link_doctype", "=", "Customer"],
+            ["Dynamic Link", "link_name", "=", customer_name],
+            ["disabled", "=", 0],
+            ["address_type", "=", "Billing"],
+        ],
+        pluck="name",
+        order_by="is_primary_address DESC",
+        limit=1,
+    )
+    if billing:
+        return billing[0]
+    from frappe.contacts.doctype.address.address import get_default_address
+    return get_default_address("Customer", customer_name)
+
+
+def _get_billing_contact_for_customer(customer_name):
+    contacts = frappe.get_all(
+        "Contact",
+        filters=[
+            ["Dynamic Link", "link_doctype", "=", "Customer"],
+            ["Dynamic Link", "link_name", "=", customer_name],
+            ["is_billing_contact", "=", 1],
+        ],
+        pluck="name",
+        order_by="`tabContact`.creation DESC",
+        limit=1,
+    )
+    if contacts:
+        return contacts[0]
+    from frappe.contacts.doctype.contact.contact import get_default_contact
+    return get_default_contact("Customer", customer_name)
